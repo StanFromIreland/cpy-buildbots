@@ -1,0 +1,30 @@
+# Settings shared by every machine. Anything here can be overridden in
+# machines/<hostname>.yml.
+
+master: buildbot-api.python.org:9020
+base_dir: /var/lib/buildbot/workers
+
+# Holds the worker password.
+password_file: /etc/buildbot-worker.pass
+
+repo_url: https://github.com/StanFromIreland/cpy-buildbots
+repo_branch: main
+deploy_interval: 1h
+
+build_deps:
+  - build-essential
+  - gdb
+  - pkg-config
+  - libbz2-dev
+  - libffi-dev
+  - libgdbm-dev
+  - libgdbm-compat-dev
+  - liblzma-dev
+  - libncurses-dev
+  - libreadline-dev
+  - libsqlite3-dev
+  - libssl-dev
+  - libzstd-dev
+  - tk-dev
+  - uuid-dev
+  - zlib1g-dev

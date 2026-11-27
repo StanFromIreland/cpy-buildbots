@@ -1,0 +1,6 @@
+# Name assigned in the python/buildmaster-config.
+worker_name: stan-riscv64-bianbu
+
+# For buildbot.python.org.
+worker_admin: "Stan Ulbrych <stan@python.org>"
+worker_host_info: "SpacemiT K3, Bianbu 4 (riscv64)"

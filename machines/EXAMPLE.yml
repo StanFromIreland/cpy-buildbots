@@ -1,0 +1,10 @@
+# Name assigned in the python/buildmaster-config.
+worker_name: CHANGEME
+
+# For buildbot.python.org.
+worker_admin: "Your Name <you AT example.com>"
+worker_host_info: "Board/CPU, cores, RAM, OS (arch)"
+
+# Future: extra apt packages for this machine only.
+# extra_packages:
+#   - ccache
