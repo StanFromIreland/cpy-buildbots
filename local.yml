@@ -18,13 +18,45 @@
   tasks:
     - name: Install buildbot-worker and CPython build dependencies
       ansible.builtin.apt:
-        name: "{{ ['buildbot-worker', 'git'] + build_deps + (extra_packages | default([])) }}"
+        name: "{{ ['buildbot-worker', 'git', 'unattended-upgrades'] + build_deps + (extra_packages | default([])) }}"
         update_cache: true
         cache_valid_time: 3600
       register: apt_result
       retries: 5 # SpacemiT package mirrors can be flaky... :-(
       delay: 30
       until: apt_result is succeeded
+
+    - name: Create configuration directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - /etc/needrestart/conf.d
+        - /etc/systemd/system/buildbot-worker@.service.d
+
+    # Daily security and regular updates. Updates only get installed, so nothing
+    # is rebooted.
+    - name: Configure unattended upgrades
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/52buildbot
+        mode: "0644"
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+          Unattended-Upgrade::Allowed-Origins {
+              "${distro_id}:${distro_codename}-updates";
+          };
+          Unattended-Upgrade::Automatic-Reboot "false";
+
+    # Where needrestart is installed, it restarts services after their
+    # libraries are upgraded, which would kill a running build...
+    - name: Stop needrestart from restarting the worker
+      ansible.builtin.copy:
+        dest: /etc/needrestart/conf.d/buildbot-worker.conf
+        mode: "0644"
+        content: |
+          $nrconf{override_rc}{qr(^buildbot-worker@)} = 0;
 
     - name: Ensure the worker password file exists
       ansible.builtin.stat:
@@ -53,7 +85,9 @@
       loop:
         - { key: keepalive, value: 60 }
         - { key: delete_leftover_dirs, value: 1 }
-      notify: Restart worker
+        # On SIGHUP, finish the running build and then exit.
+        - { key: allow_shutdown, value: "'signal'" }
+      notify: Restart worker gracefully
 
     - name: Write the public info files
       ansible.builtin.copy:
@@ -65,11 +99,24 @@
       loop:
         - { file: admin, content: "{{ worker_admin }}" }
         - { file: host, content: "{{ worker_host_info }}" }
-      notify: Restart worker
+      notify: Restart worker gracefully
+
+    # "reload" sends SIGHUP, which makes the worker exit once it is idle (see
+    # allow_shutdown above). Restart=always then starts it again.
+    - name: Make systemd restart the worker whenever it exits
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/buildbot-worker@.service.d/graceful-restart.conf
+        mode: "0644"
+        content: |
+          [Service]
+          Restart=always
+          RestartSec=10
+          ExecReload=/bin/kill -HUP $MAINPID
 
     - name: Enable and start the worker
       ansible.builtin.systemd:
         name: "buildbot-worker@{{ worker_name }}"
+        daemon_reload: true
         enabled: true
         state: started
 
@@ -89,7 +136,6 @@
           Type=oneshot
           ExecStart=/usr/bin/ansible-pull -U {{ repo_url }} -C {{ repo_branch }}
       when: repo_url is defined
-      notify: Reload systemd
 
     - name: Install the auto-deploy timer
       ansible.builtin.copy:
@@ -107,26 +153,21 @@
           [Install]
           WantedBy=timers.target
       when: repo_url is defined
-      notify: Reload systemd
-
-    - name: Reload systemd now if the deploy units changed
-      ansible.builtin.meta: flush_handlers
 
     - name: Enable the auto-deploy timer
       ansible.builtin.systemd:
         name: buildbot-deploy.timer
+        daemon_reload: true
         enabled: true
         state: started
       when: repo_url is defined
 
   handlers:
-    - name: Reload systemd
-      ansible.builtin.systemd:
-        daemon_reload: true
-
-    # Note: this interrupts a build if one is running. It only fires when
-    # buildbot.tac or the info files change.
-    - name: Restart worker
+    # Fires when buildbot.tac or the info files change. The worker tells the
+    # master it wants to shut down, finishes any running build, exits, and
+    # systemd starts it again. A worker that was started before allow_shutdown
+    # was set dies immediately on the SIGHUP instead (one hard restart).
+    - name: Restart worker gracefully
       ansible.builtin.systemd:
         name: "buildbot-worker@{{ worker_name }}"
-        state: restarted
+        state: reloaded
