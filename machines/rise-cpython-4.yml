@@ -1,0 +1,6 @@
+# Name assigned in the python/buildmaster-config.
+worker_name: rise-riscv64-4
+
+# For buildbot.python.org.
+worker_admin: "Stan Ulbrych <stan@python.org>"
+worker_host_info: "Scaleway EM-RV1, 4 cores, 16GB RAM, Ubuntu 24.04 (riscv64)"
